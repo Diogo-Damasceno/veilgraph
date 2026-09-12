@@ -7,3 +7,9 @@ __pycache__/
 venv/
 dist/
 build/
+
+# cobertura
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
