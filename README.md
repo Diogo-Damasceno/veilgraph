@@ -1,45 +1,185 @@
-# VeilGraph
+# ◆ VeilGraph
 
-Analisador de grafo de transações on-chain + simulador de ofuscação de privacidade para EVM (Ethereum). **Read-only**: lê o histórico real de transações de um endereço (via Etherscan API) e roda heurísticas de análise de cadeia para medir o quão rastreável uma carteira é — e então sobrepõe um modelo de ofuscação (split_payment, fan_out, peeling) para mostrar o quanto cada estratégia *realmente* reduz a rastreabilidade e onde ela vaza.
+> **on-chain graph analyzer · privacy/obfuscation simulator (EVM, read-only)**
 
-> ⚠️ Ferramenta educacional/defensiva. Nenhuma transação é criada ou transmitida. O módulo de ofuscação é puramente um simulador sobre o grafo real.
+```
+        ◆   V E I L G R A P H   ◆
+   on-chain graph analyzer · privacy simulator
+   ═════════════════════════════════════════
+
+   ANALYZE (trace)          OBFUSCATE (hide)
+   ┌──────────┐             ┌──────────┐
+   │ wallet   ├──►MERCHANT  │ wallet   │
+   └──────────┘  score 100  └────┬─┬───┘
+                                 │ │
+                           ┌─────▼ ▼─────┐
+                           │  A     B    │ split
+                           └─────┬─┬─────┘
+                                 ▼ ▼
+                           ┌─────────────┐
+                           │  MERCHANT   │ score 65
+                           └─────────────┘
+```
+
+VeilGraph é uma ferramenta **educacional/defensiva** que analisa a
+rastreabilidade de carteiras na Ethereum (EVM) e simula estratégias de
+ofuscação de privacidade sobre o grafo de transações real — tudo **sem nunca
+criar ou transmitir uma transação**.
+
+O objetivo é duplo e espelhado (*dual-view*):
+
+1. **Trace** — mostrar como ferramentas de *chain surveillance* reconstroem o
+   grafo de propriedade de uma carteira a partir de heurísticas públicas.
+2. **Hide** — simular técnicas de ofuscação (split-payment, fan-out, peeling)
+   e **medir** o quanto cada uma realmente reduz a rastreabilidade — e onde
+   ela **vaza**.
+
+> ⚠️ Nenhuma transação é enviada. O módulo de ofuscação é um simulador sobre o
+> grafo. É pesquisa/defesa, não uma ferramenta de evasão operacional.
+
+---
+
+## Por quê?
+
+Carteiras "desvinculadas" muitas vezes são reconectadas por análise de grafo.
+Quem audita contratos, rastreia fundos ou faz due-diligence precisa entender
+**como** essas técnicas funcionam e **como são derrotadas**. VeilGraph torna
+esse conhecimento visual e quantitativo.
+
+---
 
 ## O que ele faz
 
-- **Análise de grafo (`/analyze`)**: busca o histórico de um endereço e aplica 3 heurísticas clássicas de surveillance:
-  - *Common-input / fan-in*: carteiras que financiam a mesma carteira com valores que somam um pagamento posterior são ligadas como mesmo dono.
-  - *Round-trip / change-address*: fluxos A→B e B→A indicam mesmo dono.
-  - *Score de rastreabilidade* (0 = rastro quebrado, 100 = trivialmente rastreável).
-- **Simulador de ofuscação (`/obfuscate`)**: modelo dual-view. Mostra o grafo real, depois o grafo "ofuscado" e o novo score — evidenciando por que `split_payment` quebra a aresta direta mas vaza por correlação de valor.
+### `POST /analyze` — análise de grafo
+Busca o histórico de um endereço (Etherscan, read-only) e aplica heurísticas
+clássicas de *surveillance on-chain*:
+
+| Heurística | O que detecta |
+|---|---|
+| **Common-input / fan-in** | Carteiras que financiam a mesma carteira com valores que somam um pagamento posterior são ligadas como mesmo dono. |
+| **Round-trip / change** | Fluxos `A→B` e `B→A` indicam mesmo dono (endereço de troco). |
+| **Score de rastreabilidade** | `0` = rastro quebrado · `100` = trivialmente rastreável. Baseado na distância de grafo (BFS) do foco até o *sink* (exchange/deposit/merchant) + penalidade de cluster. |
+
+### `POST /obfuscate` — simulador de ofuscação
+Sobrepõe um modelo de privacidade ao grafo real e devolve o novo score:
+
+| Estratégia | O que faz | Efeito no score | Onde vaza |
+|---|---|---|---|
+| `split_payment` | N carteiras-irmãs enviam frações ao merchant; a carteira foco some da aresta direta. | reduz (ex: 100→65) | correlação de valor (soma == pagamento) |
+| `fan_out` | a foco espalha fundos em N carteiras; uma paga. | mantém (foco ainda financia as irmãs) | round-trip imediato foco↔irmã |
+| `peeling` | cadeia de hops 1-entrada/1-saída encaminha o valor. | pode zerar | valores iguais expõem a cadeia (heurística de peeling) |
+
+---
 
 ## Stack
 
-Python 3.11+, FastAPI, networkx, httpx, vis-network (UI). Sem banco de dados.
+- **Python 3.11+** · FastAPI · networkx · httpx · pydantic
+- **UI**: HTML/JS estático com [vis-network](https://visjs.github.io/vis-network/)
+- Sem banco de dados · sem dependência de rede para o modo *synthetic*
+- Testes com pytest (100% offline, sem chamadas de rede)
+
+---
 
 ## Uso local
 
 ```bash
+# 1. clone / entre na pasta
+cd veilgraph
+python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
-# opcional: habilita dados reais da Ethereum
+
+# 2. (opcional) dados reais da Ethereum
 export VEILGRAPH_ETHERSCAN_API_KEY=sua_key_gratuita
+
+# 3. rode a API + UI
 uvicorn veilgraph.api:app --host 0.0.0.0 --port 8000
 # abra http://localhost:8000
 ```
 
-Sem a API key, o modo cai automaticamente para **synthetic** (histórico fake determinístico, 100% offline).
+Sem a API key, o modo cai automaticamente para **synthetic** (histórico fake
+determinístico, 100% offline) — ótimo pra demo e CI.
 
-CLI:
+### CLI
 
 ```bash
-veilgraph analyze 0x... --api-key SUAKEY
-veilgraph obfuscate 0x... --strategy split_payment --fan-out 3
+veilgraph analyze 0x1234... --api-key SUAKEY
+veilgraph obfuscate 0x1234... --strategy split_payment --fan-out 3
 ```
+
+---
+
+## Exemplo de resposta da API
+
+`POST /analyze`
+
+```json
+{
+  "focus": "0x1111...1111",
+  "mode": "synthetic",
+  "traceability_score": 100.0,
+  "clusters": [],
+  "nodes": [{ "id": "0x1111...1111", "is_focus": true, "inferred_owner": null }],
+  "edges": [{ "source": "0x1111...1111", "target": "0xmerchant...dead", "value_eth": 1.23, "kind": "flow" }],
+  "notes": ["Nenhuma heurística de co-propriedade disparou..."]
+}
+```
+
+`POST /obfuscate` (estratégia `split_payment`, fan-out 3)
+
+```json
+{
+  "focus": "0x1111...1111",
+  "before_score": 100.0,
+  "after_score": 65.0,
+  "notes": [
+    "split_payment: carteiras-irmãs enviam frações do pagamento...",
+    "Heurística de fan-in/round-trip ligou ..."
+  ]
+}
+```
+
+---
+
+## Arquitetura
+
+```
+┌────────────┐   HTTP    ┌──────────────┐   core    ┌──────────────────┐
+│  UI (vis)  │ ◄───────► │  FastAPI     │ ◄───────► │  fetcher         │
+└────────────┘          │  /analyze    │           │  (Etherscan /    │
+                        │  /obfuscate  │           │   synthetic)     │
+                        └──────┬───────┘           └────────┬─────────┘
+                               │                          │
+                  ┌────────────▼──────────┐   ┌───────────▼──────────┐
+                  │  analysis (heurísticas│   │  obfuscate (sim)     │
+                  │   + score BFS)        │   │  split/fan/peeling   │
+                  └────────────┬──────────┘   └───────────┬──────────┘
+                               └──────────► graph (nodes/edges) ◄┘
+```
+
+| Módulo | Responsabilidade |
+|---|---|
+| `fetcher.py` | Leitura (live Etherscan, read-only) + gerador *synthetic* determinístico. |
+| `analysis.py` | Heurísticas de clusterização (fan-in, round-trip) e score de rastreabilidade (BFS). |
+| `obfuscate.py` | Simulador das estratégias de privacidade sobre o grafo real. |
+| `graph.py` | Montagem de `nodes`/`edges` (com `inferred_owner`) para a UI. |
+| `api.py` | Endpoints FastAPI + serviço da UI estática. |
+| `cli.py` | Interface de linha de comando (`analyze`, `obfuscate`). |
+| `static/index.html` | UI: grafo navegável + veredito + clusters. |
+| `tests/` | Testes (sem rede). |
+
+---
 
 ## Testes
 
 ```bash
-pytest
+pytest -v --cov=veilgraph --cov-report=term-missing
 ```
+
+Cobre: determinismo do gerador *synthetic*, heurísticas de fan-in e round-trip,
+faixas do score, e os três cenários de ofuscação (incluindo a asserção de que
+`split_payment` reduz o score e esconde a aresta direta de pagamento).
+
+---
 
 ## Deploy (Docker / Render / Railway)
 
@@ -48,22 +188,22 @@ docker build -t veilgraph .
 docker run -p 8000:8000 -e VEILGRAPH_ETHERSCAN_API_KEY=... veilgraph
 ```
 
-No Render/Railway: aponte o build para este repo e o start command é `uvicorn veilgraph.api:app --host 0.0.0.0 --port $PORT`.
+No Render/Railway: aponte o build para este repo, `Dockerfile` já existe, e o
+start command é `uvicorn veilgraph.api:app --host 0.0.0.0 --port $PORT`.
+Para dados reais, defina a var `VEILGRAPH_ETHERSCAN_API_KEY` no painel.
 
-## Estrutura
+---
 
-```
-src/veilgraph/
-  fetcher.py    leitura (live Etherscan) + modo synthetic
-  analysis.py   heurísticas de clusterização e scoring
-  obfuscate.py  simulador de estratégias de privacidade
-  graph.py      montagem de nodes/edges p/ a UI
-  api.py        endpoints FastAPI
-  cli.py        interface de linha de comando
-static/index.html   UI (vis-network)
-tests/          testes (sem rede)
-```
+## Limitações / escopo
+
+- **Read-only**: não assina, não envia, não interage com carteiras.
+- O modo *live* depende do `txlist` do Etherscan (histórico normal); não faz
+  join com transfers de tokens ERC-20 internos por padrão.
+- As heurísticas são modelos didáticos das técnicas reais de surveillance, não
+  um substituto para ferramentas comerciais (Elliptic, Chainalysis, etc).
+
+---
 
 ## Licença
 
-MIT
+MIT — use, estenda e cite.
