@@ -98,3 +98,47 @@ def test_build_graph_and_inferred_map():
     nodes, edges = build_graph(h, focus, inmap)
     assert any(n["id"] == focus for n in nodes)
     assert all("source" in e and "target" in e for e in edges)
+
+
+def test_normalize_aceita_endereco_valido():
+    from veilgraph.fetcher import _normalize
+    a = "0x" + "aB" * 20
+    assert _normalize(a) == "0x" + "ab" * 20
+
+
+@pytest.mark.parametrize("ruim", ["0xABC", "nao-e-endereco", "0xzz", "0x" + "g" * 40, ""])
+def test_normalize_rejeita_endereco_invalido(ruim):
+    from veilgraph.fetcher import _normalize
+    with pytest.raises(ValueError):
+        _normalize(ruim)
+
+
+def test_normalize_rejeita_nao_string():
+    from veilgraph.fetcher import _normalize
+    with pytest.raises(ValueError):
+        _normalize(123)
+
+
+def test_erro_http_nao_vaza_url_com_api_key(monkeypatch):
+    """A URL do Etherscan contem a chave; a excecao nao pode inclui-la."""
+    import httpx
+    from veilgraph import fetcher
+
+    captured = {}
+
+    def fake_get(url, params=None, **kw):
+        captured["params"] = params
+        raise httpx.ConnectError("boom http://api.etherscan.io/api?apikey=SEGREDO123")
+
+    monkeypatch.setattr(fetcher.httpx, "get", fake_get)
+    addr = "0x" + "1" * 40
+    with pytest.raises(RuntimeError) as ei:
+        fetcher.fetch_live(addr, tx_limit=10, api_key="SEGREDO123")
+    assert "SEGREDO123" not in str(ei.value)
+    assert "apikey" not in str(ei.value).lower()
+
+
+def test_banner_existe_e_tem_logo():
+    from veilgraph.banner import BANNER, print_banner
+    assert "Veil" in BANNER or "╗" in BANNER
+    assert callable(print_banner)
