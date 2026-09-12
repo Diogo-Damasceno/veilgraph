@@ -140,5 +140,7 @@ def test_erro_http_nao_vaza_url_com_api_key(monkeypatch):
 
 def test_banner_existe_e_tem_logo():
     from veilgraph.banner import BANNER, print_banner
-    assert "Veil" in BANNER or "╗" in BANNER
+    # ASCII arte: espera-se blocos de desenho e multiplas linhas
+    assert any(ch in BANNER for ch in "█▓▄▀")
+    assert len(BANNER.strip().splitlines()) >= 5
     assert callable(print_banner)
