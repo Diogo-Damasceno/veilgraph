@@ -1,5 +1,17 @@
 # ◆ VeilGraph
 
+```
+██╗   ██╗███████╗██╗██╗     ██████╗ ██████╗  █████╗ ██████╗ ██╗  ██╗
+██║   ██║██╔════╝██║██║     ██╔════╝ ██╔══██╗██╔══██╗██╔══██╗██║  ██║
+██║   ██║█████╗  ██║██║     ██║  ███╗██████╔╝███████║██████╔╝███████║
+╚██╗ ██╔╝██╔══╝  ██║██║     ██║   ██║██╔══██╗██╔══██║██╔═══╝ ██╔══██║
+ ╚████╔╝ ███████╗██║███████╗╚██████╔╝██║  ██║██║  ██║██║     ██║  ██║
+  ╚═══╝  ╚══════╝╚═╝╚══════╝ ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚═╝     ╚═╝  ╚═╝
+
+  on-chain graph analyzer · privacy/obfuscation simulator
+  ⚠  read-only — nenhuma transação é criada ou enviada
+```
+
 > **on-chain graph analyzer · privacy/obfuscation simulator (EVM, read-only)**
 
 ```
@@ -98,6 +110,17 @@ uvicorn veilgraph.api:app --host 0.0.0.0 --port 8000
 
 Sem a API key, o modo cai automaticamente para **synthetic** (histórico fake
 determinístico, 100% offline) — ótimo pra demo e CI.
+
+### Notas de segurança
+
+- **A chave de API nunca aparece em exceções.** A URL do Etherscan contém a
+  chave como parâmetro de query; por isso os erros HTTP são relançados sem a
+  URL, apenas com o tipo da falha e a mensagem da API (há teste que garante
+  isso: `test_erro_http_nao_vazao_url_com_api_key`).
+- **Endereços são validados** (`0x` + 40 hex). Entradas como `0xzz` eram
+  aceitas antes e geravam chamadas inúteis ou grafos sintéticos enganosos.
+- Nada aqui assina ou transmite transação. A ferramenta é **read-only** por
+  construção: o único verbo HTTP usado é `GET` contra a API do Etherscan.
 
 ### CLI
 
