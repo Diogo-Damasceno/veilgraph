@@ -1,29 +1,25 @@
 #!/usr/bin/env bash
+# Testes ao vivo do veilgraph — tema BlackArch (vermelho/preto, azul no PASSED).
+# Roda em loop: salve qualquer arquivo e a suite re-roda sozinha.
 cd "$(dirname "$0")" || exit 1
 source .venv/bin/activate
-clear
 
-cat <<'EOF'
-        ◆   V E I L G R A P H   ◆
-   on-chain graph analyzer · privacy simulator
-   ═════════════════════════════════════════
+INTERVAL="${INTERVAL:-2}"
 
-   ANALYZE (trace)          OBFUSCATE (hide)
-   ┌──────────┐             ┌──────────┐
-   │ wallet   ├──►MERCHANT  │ wallet   │
-   └──────────┘  score 100  └────┬─┬───┘
-                                 │ │
-                           ┌─────▼ ▼─────┐
-                           │  A     B    │ split
-                           └─────┬─┬─────┘
-                                 ▼ ▼
-                           ┌─────────────┐
-                           │  MERCHANT   │ score 65
-                           └─────────────┘
-EOF
+run_once() {
+    clear
+    python -c "from veilgraph.banner import print_banner; print_banner()"
+    python -m pytest tests/ -v --color=yes --cov=veilgraph --cov-report=term-missing
+    echo
+    echo "  proxima execucao em ${INTERVAL}s  ·  Ctrl+C para sair"
+}
 
-echo
-python -m pytest -v --cov=veilgraph --cov-report=term-missing --color=yes
-echo
-echo "Pressione ENTER para fechar."
-read
+if [ "${1:-}" = "--once" ]; then
+    run_once
+    exit $?
+fi
+
+while true; do
+    run_once
+    sleep "$INTERVAL"
+done
