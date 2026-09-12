@@ -14,6 +14,7 @@ import hashlib
 import json
 import os
 import random
+import re
 import time
 
 import httpx
@@ -25,10 +26,25 @@ from .models import Tx
 ETHERSCAN_BASE = etherscan_base_url()
 
 
+ADDRESS_RE = re.compile(r"^0x[0-9a-fA-F]{40}$")
+
+
 def _normalize(address: str) -> str:
-    if not address.startswith("0x"):
-        raise ValueError("address must start with 0x")
-    return address.lower()
+    """Valida e normaliza um endereco EVM (20 bytes = 40 hex apos 0x).
+
+    Antes a checagem era so o prefixo '0x', o que aceitava lixo como '0xzz' e
+    seguia adiante (gastando uma chamada de API inutil ou gerando um grafo
+    sintetico enganoso). Aqui exigimos o formato real.
+    """
+    if not isinstance(address, str):
+        raise ValueError("address must be a string")
+    addr = address.strip()
+    if not ADDRESS_RE.match(addr):
+        raise ValueError(
+            "endereco EVM invalido: esperado '0x' + 40 caracteres hex "
+            f"(recebido {addr[:12]!r}...)"
+        )
+    return addr.lower()
 
 
 def fetch_live(address: str, tx_limit: int | None = None, api_key: str | None = None) -> list[Tx]:
@@ -50,10 +66,24 @@ def fetch_live(address: str, tx_limit: int | None = None, api_key: str | None = 
         "page": 1,
         "offset": limit,
         "sort": "asc",
-        "apikey": key,
     }
-    resp = httpx.get(ETHERSCAN_BASE, params=params, timeout=30.0)
-    resp.raise_for_status()
+    # Etherscan so aceita a chave como param de query, entao ela inevitavelmente
+    # aparece na URL da requisicao. O que podemos (e devemos) fazer e impedir
+    # que ela vaze em EXCECOES/LOGS: por isso os erros abaixo nunca incluem a
+    # URL completa nem os params — so o status e a mensagem da API.
+    if key:
+        params["apikey"] = key
+    try:
+        resp = httpx.get(ETHERSCAN_BASE, params=params, timeout=30.0)
+        resp.raise_for_status()
+    except httpx.HTTPError as e:
+        # IMPORTANTE: str(httpx.HTTPError) contém a URL completa, que inclui
+        # a API key como param. Relançamos sem a URL para nao vazar a chave
+        # em logs/tracebacks.
+        raise RuntimeError(
+            f"Etherscan request failed ({type(e).__name__}); "
+            "URL omitida para nao expor a chave de API"
+        ) from None
     data = resp.json()
     if data.get("status") != "1":
         msg = data.get("message", "query returned no data")
