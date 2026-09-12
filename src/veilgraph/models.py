@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from pydantic import BaseModel, Field
 
 
@@ -30,6 +32,8 @@ class AnalyzeRequest(BaseModel):
     address: str
     tx_limit: int = 500
     api_key: str | None = None
+    explain: bool = False
+    llm: str = "auto"  # auto | api | offline | anthropic | openai
 
 
 class NodeOut(BaseModel):
@@ -54,6 +58,7 @@ class AnalyzeResponse(BaseModel):
     clusters: list[list[str]]
     traceability_score: float  # 0 (untraceable) .. 100 (trivially traced)
     notes: list[str]
+    llm_summary: dict[str, Any] | None = None
 
 
 class ObfuscateRequest(BaseModel):
@@ -62,6 +67,8 @@ class ObfuscateRequest(BaseModel):
     fan_out: int = 3
     tx_limit: int = 500
     api_key: str | None = None
+    explain: bool = False
+    llm: str = "auto"  # auto | api | offline | anthropic | openai
 
 
 class ObfuscateResponse(BaseModel):
@@ -72,3 +79,4 @@ class ObfuscateResponse(BaseModel):
     nodes: list[NodeOut]
     edges: list[EdgeOut]
     notes: list[str]
+    llm_summary: dict[str, Any] | None = None

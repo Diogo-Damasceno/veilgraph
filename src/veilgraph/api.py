@@ -12,6 +12,7 @@ from .fetcher import fetch_transactions
 from .analysis import analyze
 from .graph import build_graph, inferred_owner_map
 from .obfuscate import simulate
+from .llm import explain
 from .models import (
     AnalyzeRequest,
     AnalyzeResponse,
@@ -62,6 +63,19 @@ def analyze_endpoint(req: AnalyzeRequest):
     res = analyze(txs, req.address)
     inmap = inferred_owner_map(res["clusters"])
     nodes, edges = build_graph(txs, req.address, inmap)
+    llm_summary = None
+    if req.explain:
+        llm_summary = explain(
+            {
+                "focus": req.address.lower(),
+                "mode": mode,
+                "tx_count": len(txs),
+                "traceability_score": res["traceability_score"],
+                "clusters": res["clusters"],
+                "notes": res["notes"],
+            },
+            prefer=req.llm,
+        )
     return AnalyzeResponse(
         focus=req.address.lower(),
         mode=mode,
@@ -70,6 +84,7 @@ def analyze_endpoint(req: AnalyzeRequest):
         clusters=res["clusters"],
         traceability_score=res["traceability_score"],
         notes=res["notes"],
+        llm_summary=llm_summary,
     )
 
 
@@ -80,6 +95,19 @@ def obfuscate_endpoint(req: ObfuscateRequest):
     except RuntimeError as e:
         raise HTTPException(status_code=502, detail=str(e))
     sim = simulate(req.address, txs, req.strategy, req.fan_out)
+    llm_summary = None
+    if req.explain:
+        llm_summary = explain(
+            {
+                "focus": sim["focus"],
+                "mode": mode,
+                "strategy": sim["strategy"],
+                "before_score": sim["before_score"],
+                "after_score": sim["after_score"],
+                "notes": sim["notes"],
+            },
+            prefer=req.llm,
+        )
     return ObfuscateResponse(
         focus=sim["focus"],
         mode=mode,
@@ -88,4 +116,5 @@ def obfuscate_endpoint(req: ObfuscateRequest):
         nodes=sim["nodes"],
         edges=sim["edges"],
         notes=sim["notes"],
+        llm_summary=llm_summary,
     )
