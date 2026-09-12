@@ -14,24 +14,6 @@
 
 > **on-chain graph analyzer · privacy/obfuscation simulator (EVM, read-only)**
 
-```
-        ◆   V E I L G R A P H   ◆
-   on-chain graph analyzer · privacy simulator
-   ═════════════════════════════════════════
-
-   ANALYZE (trace)          OBFUSCATE (hide)
-   ┌──────────┐             ┌──────────┐
-   │ wallet   ├──►MERCHANT  │ wallet   │
-   └──────────┘  score 100  └────┬─┬───┘
-                                 │ │
-                           ┌─────▼ ▼─────┐
-                           │  A     B    │ split
-                           └─────┬─┬─────┘
-                                 ▼ ▼
-                           ┌─────────────┐
-                           │  MERCHANT   │ score 65
-                           └─────────────┘
-```
 
 VeilGraph é uma ferramenta **educacional/defensiva** que analisa a
 rastreabilidade de carteiras na Ethereum (EVM) e simula estratégias de
@@ -60,6 +42,74 @@ esse conhecimento visual e quantitativo.
 
 ---
 
+
+## Visão do processamento
+
+```mermaid
+flowchart TD
+    A["Endereço EVM"] --> B["Validar e normalizar"]
+    B --> C{"Chave Etherscan disponível?"}
+    C -->|Não| D["Histórico synthetic local"]
+    C -->|Sim| E["Leitura txlist via GET"]
+    D --> F["Lista de transações"]
+    E --> F
+    F --> G{"Operação"}
+    G -->|analyze| H["Clusters e score do histórico"]
+    G -->|obfuscate| I["Sobreposição simulada"]
+    I --> J["Analisar antes e depois"]
+    H --> K["Nós, arestas e notas"]
+    J --> K
+    K --> L["JSON e visualização do grafo"]
+    classDef accent fill:#30131b,stroke:#ef4444,color:#fff;
+    class A,F,I,K,L accent;
+```
+
+Fluxo nominal: falhas do serviço live podem retornar erro; não presuma fallback
+offline para qualquer falha. As arestas simuladas existem apenas em memória:
+não há assinatura nem transmissão para a blockchain.
+
+### Como interpretar o score
+
+O cálculo usa a menor distância até um **sink** (nó que só recebe) e acrescenta
+20 pontos quando o foco pertence a um cluster inferido, limitado a 100.
+
+| Distância até o sink | Score-base, sem penalidade de cluster |
+|---|---:|
+| 1 aresta | 100 |
+| 2 arestas | 65 |
+| 3 arestas | 30 |
+| 4 ou mais arestas | 0 |
+
+Esta tabela descreve caminhos alcançáveis a partir de um foco com saídas.
+Casos sem transações, sem caminho ou com o próprio foco como sink recebem
+tratamento específico em `analysis.py`.
+
+> **Score não é probabilidade de identificação.** Zero não comprova anonimato;
+> clusters são inferências, não prova de propriedade. O resultado depende dos
+> dados disponíveis e das heurísticas implementadas.
+
+### Exemplo visual: pagamento direto e modelo split
+
+```mermaid
+flowchart TD
+    subgraph BEFORE["Histórico de referência"]
+        F1["Foco"] --> M1["Destino"]
+    end
+    subgraph AFTER["Grafo simulado: duas carteiras intermediárias"]
+        F2["Foco"] --> A["Carteira A"]
+        F2 --> B["Carteira B"]
+        A --> M2["Merchant sintético"]
+        B --> M2
+    end
+    classDef accent fill:#30131b,stroke:#ef4444,color:#fff;
+    class F1,F2,M1,M2 accent;
+```
+
+Esquema conceitual, não captura de uma execução. No modelo `split_payment`,
+o financiamento das intermediárias **continua no grafo**; desaparece apenas
+a aresta direta. A simulação redireciona os pagamentos para um sink sintético
+compartilhado, portanto não reproduz integralmente a economia de uma carteira real.
+
 ## O que ele faz
 
 ### `POST /analyze` — análise de grafo
@@ -70,7 +120,7 @@ clássicas de *surveillance on-chain*:
 |---|---|
 | **Common-input / fan-in** | Carteiras que financiam a mesma carteira com valores que somam um pagamento posterior são ligadas como mesmo dono. |
 | **Round-trip / change** | Fluxos `A→B` e `B→A` indicam mesmo dono (endereço de troco). |
-| **Score de rastreabilidade** | `0` = rastro quebrado · `100` = trivialmente rastreável. Baseado na distância de grafo (BFS) do foco até o *sink* (exchange/deposit/merchant) + penalidade de cluster. |
+| **Score de rastreabilidade** | `0` = menor score do modelo · `100` = maior score do modelo. Baseado na distância de grafo (BFS) do foco até o *sink* (exchange/deposit/merchant) + penalidade de cluster. |
 
 ### `POST /obfuscate` — simulador de ofuscação
 Sobrepõe um modelo de privacidade ao grafo real e devolve o novo score:
@@ -165,19 +215,25 @@ veilgraph obfuscate 0x1234... --strategy split_payment --fan-out 3
 
 ## Arquitetura
 
+```mermaid
+flowchart TD
+    UI["UI: vis-network"] --> API["api.py: FastAPI"]
+    CLI["cli.py"] --> FETCH["fetcher.py"]
+    API --> FETCH
+    FETCH --> TX["Transações: live ou synthetic"]
+    TX --> ANALYSIS["analysis.py: clusters e score"]
+    TX --> SIM["obfuscate.py: simulação"]
+    SIM --> ANALYSIS
+    ANALYSIS --> GRAPH["graph.py: nós e arestas"]
+    GRAPH --> OUT["Resposta estruturada"]
+    OUT --> UI
+    classDef accent fill:#30131b,stroke:#ef4444,color:#fff;
+    class UI,API,ANALYSIS,SIM,GRAPH accent;
 ```
-┌────────────┐   HTTP    ┌──────────────┐   core    ┌──────────────────┐
-│  UI (vis)  │ ◄───────► │  FastAPI     │ ◄───────► │  fetcher         │
-└────────────┘          │  /analyze    │           │  (Etherscan /    │
-                        │  /obfuscate  │           │   synthetic)     │
-                        └──────┬───────┘           └────────┬─────────┘
-                               │                          │
-                  ┌────────────▼──────────┐   ┌───────────▼──────────┐
-                  │  analysis (heurísticas│   │  obfuscate (sim)     │
-                  │   + score BFS)        │   │  split/fan/peeling   │
-                  └────────────┬──────────┘   └───────────┬──────────┘
-                               └──────────► graph (nodes/edges) ◄┘
-```
+
+Visão das responsabilidades compartilhadas; a API e a CLI orquestram as chamadas.
+A UI só é servida quando o diretório estático esperado pela API está disponível.
+
 
 | Módulo | Responsabilidade |
 |---|---|
