@@ -6,6 +6,7 @@ import argparse
 import json
 import sys
 
+from .banner import print_banner
 from .fetcher import fetch_transactions
 from .analysis import analyze
 from .obfuscate import simulate
@@ -16,6 +17,8 @@ def main(argv: list[str] | None = None) -> int:
         prog="veilgraph",
         description="On-chain graph analyzer + privacy simulator (read-only).",
     )
+    parser.add_argument("--no-banner", action="store_true",
+                        help="oculta o banner ASCII")
     sub = parser.add_subparsers(dest="cmd", required=True)
 
     a = sub.add_parser("analyze", help="analyze an address's transaction graph")
@@ -32,6 +35,10 @@ def main(argv: list[str] | None = None) -> int:
     o.add_argument("--api-key", default=None)
 
     args = parser.parse_args(argv)
+
+    if not args.no_banner:
+        use_color = hasattr(sys.stdout, "isatty") and sys.stdout.isatty()
+        print_banner(color=use_color)
 
     if args.cmd == "analyze":
         txs, mode = fetch_transactions(args.address, args.tx_limit, args.api_key)
